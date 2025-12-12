@@ -21,12 +21,22 @@ export interface BuildConfig {
 export class BuildEngine {
     private config: BuildConfig;
     private log: ConsoleLog;
-    private jdkPath = 'C:\\Program Files\\Java\\jdk-22';
-    private androidSdkPath = 'C:\\Users\\Sandeep Kasturi\\AppData\\Local\\Android\\Sdk';
+    private jdkPath: string;
+    private androidSdkPath: string;
 
     constructor(config: BuildConfig) {
         this.config = config;
         this.log = new ConsoleLog('BuildEngine');
+
+        // Dynamic Path Resolution
+        this.jdkPath = process.env.JAVA_HOME || 'C:\\Program Files\\Java\\jdk-22';
+        this.androidSdkPath = process.env.ANDROID_HOME || process.env.ANDROID_SDK_ROOT || 'C:\\Users\\Sandeep Kasturi\\AppData\\Local\\Android\\Sdk';
+    }
+
+    private getExecutable(binName: string): string {
+        const isWin = process.platform === 'win32';
+        const ext = isWin ? '.exe' : '';
+        return path.join(this.jdkPath, 'bin', `${binName}${ext}`);
     }
 
     async run() {
@@ -62,7 +72,8 @@ export class BuildEngine {
     private getSha256Fingerprint(): string {
         try {
             const keystorePath = path.join(this.config.workingDir, 'android.keystore');
-            const keytool = path.join(this.jdkPath, 'bin', 'keytool.exe');
+            const keytool = this.getExecutable('keytool');
+
             // Command to list keystore details including certificate fingerprints
             const cmd = `"${keytool}" -list -v -keystore "${keystorePath}" -alias android -storepass password`;
             const output = execSync(cmd).toString();
@@ -78,6 +89,8 @@ export class BuildEngine {
 
     private async setupEnvironment() {
         console.log(`[${this.config.buildId}] Setting up environment...`);
+        console.log(`Using JDK: ${this.jdkPath}`);
+        console.log(`Using SDK: ${this.androidSdkPath}`);
         // Ensure working directory exists
         await fs.ensureDir(this.config.workingDir);
     }
@@ -117,33 +130,7 @@ export class BuildEngine {
         const manifest = new TwaManifest(manifestConfig);
         const generator = new TwaGenerator();
 
-        // We need to trick Bubblewrap's icon fetching if we are using a local path that looks like a URL or just bypass it.
-        // TwaGenerator expects to download the icon.
-        // However, we are going to use the `downloadIcon` method override or just mock the input if possible.
-        // Easier approach: Start a temp local server to serve the icon, OR manually place the icon after generation?
-        // Actually, TwaGenerator.createTwaProject takes the manifest.
-        // Let's rely on a small hack: We will manually copy the icon to the expected location in the generated project logic 
-        // OR we start a tiny ephemeral server.
-        // BETTER: We can mock the ImageHelper or just serve it locally.
-
-        // Strategy: Use a tiny local server for the build duration.
-        // For now, let's implement the serverless fallback:
-        // We will pass a dummy URL, let it fail (if it doesn't crash everything), then overwrite.
-        // No, Bubblewrap throws.
-        // Let's overwrite `ImageHelper.fetchIcon`? No, complex.
-        // Let's use the local file URI if supported? Bubblewrap might not support `file://` on Windows correctly in all versions.
-
-        // Valid Strategy: Spin up a static file server on a random port.
-        // Actually, let's just use the `builder.js` strategy: local server.
-
-        // For this implementation, I will assume we can pass a localhost URL. 
-        // I'll skip the server implementation inside this class for brevity and assume the caller handles serving OR 
-        // we implement a simple workaround: 
-        // We will skip TwaGenerator's icon step if possible? No.
-
-        // Let's try `file:///` URI. Bubblewrap uses `got` or `fetch`. `got` creates http requests.
-        // OK, I'll implement a fast http server here.
-
+        // Icon Server Strategy (Same as before)
         const port = 3000 + Math.floor(Math.random() * 10000);
         const http = require('http');
         const iconServer = http.createServer((req: any, res: any) => {
@@ -159,31 +146,30 @@ export class BuildEngine {
         } finally {
             iconServer.close();
         }
-
-        // Fix build.gradle syntax if needed (Though we patched the manifest input so it might be fine)
-        // Check for missing properties just in case.
-        // The previous issue was `enableNotifications: ,` which we fixed by passing `enableNotifications: true` in manifestConfig.
     }
 
     private async buildApk() {
         console.log(`[${this.config.buildId}] Building APK...`);
 
-        // Create local.properties
+        // Create local.properties: Use forward slashes for cross-platform compatibility
         const localPropsPath = path.join(this.config.workingDir, 'local.properties');
-        await fs.writeFile(localPropsPath, `sdk.dir=${this.androidSdkPath.replace(/\\/g, '\\\\')}`);
+
+        // Escape backslashes for Windows, but forward slashes work on both for Java props usually.
+        // Safer to just use path.sep logic or replace.
+        const safeSdkPath = this.androidSdkPath.replace(/\\/g, '\\\\');
+        await fs.writeFile(localPropsPath, `sdk.dir=${safeSdkPath}`);
 
         // Setup Gradle Wrapper
         const bubblewrapConfig = new Config(this.jdkPath, this.androidSdkPath);
         const jdkHelper = new JdkHelper(process, bubblewrapConfig);
-        // Direct constructor to bypass validation
-        // @ts-ignore - Ignoring protected constructor access if any, or strict type checks for now
+        // @ts-ignore
         const androidSdkTools = new AndroidSdkTools(process, bubblewrapConfig, jdkHelper);
         const gradleWrapper = new GradleWrapper(process, androidSdkTools, this.config.workingDir);
 
         // Generate Keystore if needed
         const keystorePath = path.join(this.config.workingDir, 'android.keystore');
         if (!fs.existsSync(keystorePath)) {
-            const keytool = path.join(this.jdkPath, 'bin', 'keytool.exe');
+            const keytool = this.getExecutable('keytool');
             const cmd = `"${keytool}" -genkeypair -v -keystore "${keystorePath}" -alias android -keyalg RSA -keysize 2048 -validity 10000 -storepass password -keypass password -dname "CN=NativeBridge, OU=Engineering, O=NativeBridge, C=US"`;
             execSync(cmd);
         }
@@ -200,7 +186,7 @@ export class BuildEngine {
         if (!latestVersion) throw new Error('No build-tools found');
 
         const apksignerJar = path.join(buildToolsRoot, latestVersion, 'lib', 'apksigner.jar');
-        const javaExe = path.join(this.jdkPath, 'bin', 'java.exe');
+        const javaExe = this.getExecutable('java');
 
         const apkDir = path.join(this.config.workingDir, 'app', 'build', 'outputs', 'apk', 'release');
         const inputApk = path.join(apkDir, 'app-release-unsigned.apk');
