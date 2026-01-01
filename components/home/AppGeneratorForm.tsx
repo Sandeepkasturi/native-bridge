@@ -104,7 +104,29 @@ export function AppGeneratorForm() {
                                 <Loader2 className="w-8 h-8 text-purple-400 animate-spin" />
                             </div>
                             <h3 className="text-xl font-bold text-white mb-2">Building in Cloud</h3>
-                            <p className="text-slate-400">GitHub Actions is processing your request...</p>
+                            <p className="text-slate-400 mb-6">GitHub Actions is processing your request...</p>
+
+                            <button
+                                onClick={async () => {
+                                    setLog(prev => prev + '\nManually checking status...');
+                                    try {
+                                        const res = await fetch(`/api/status?buildId=${buildId}`);
+                                        const data = await res.json();
+                                        if (data.status === 'completed' && data.artifactId) {
+                                            setStatus('success');
+                                            setDownloadUrl(`/api/artifact?artifactId=${data.artifactId}`);
+                                            setLog(prev => prev + '\nBuild Complete! APK is ready.');
+                                        } else {
+                                            setLog(prev => prev + `\nStatus: ${data.status}`);
+                                        }
+                                    } catch (e) {
+                                        setLog(prev => prev + '\nCheck failed.');
+                                    }
+                                }}
+                                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-sm font-medium transition-colors"
+                            >
+                                Check Status Now
+                            </button>
                         </div>
                     )}
 
