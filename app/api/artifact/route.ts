@@ -45,6 +45,7 @@ export async function GET(req: NextRequest) {
         }
 
         // 5. Serve the APK raw
+        // Ensure BodyInit cast for NextResponse compatibility
         const apkBuffer = apkEntry.getData();
 
         const headers = new Headers();
