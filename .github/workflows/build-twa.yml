@@ -84,3 +84,14 @@ jobs:
         with:
           name: app-release-${{ github.event.client_payload.buildId || inputs.buildId }}
           path: android_project/app/build/outputs/apk/release/app-release-signed.apk
+
+      - name: Upload Source Code
+        if: always() # Upload even if build fails, so user can debug/fix locally
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-code-${{ github.event.client_payload.buildId || inputs.buildId }}
+          path: |
+            android_project/
+            !android_project/app/build/
+            !android_project/.gradle/
+
