@@ -192,7 +192,7 @@ export function AppGeneratorForm() {
                             </div>
 
                             <div className="mt-4">
-                                {status === 'building' ? (
+                                {status === 'building' || (status === 'error' && log.includes('Starting build')) ? (
                                     <BuildVideo />
                                 ) : (
                                     <GenerateButton
@@ -205,7 +205,7 @@ export function AppGeneratorForm() {
                     )}
 
                     {/* Logs Terminal */}
-                    {(status === 'building' || status === 'error') && (
+                    {(status === 'building' || status === 'error' || status === 'active-cloud') && (
                         <div className="mt-8 bg-black rounded-lg border border-slate-800 p-4 font-mono text-xs text-green-400 h-48 overflow-y-auto shadow-inner">
                             <div className="flex items-center gap-2 text-slate-500 mb-2 pb-2 border-b border-slate-900">
                                 <span className="w-2 h-2 rounded-full bg-red-500" />
