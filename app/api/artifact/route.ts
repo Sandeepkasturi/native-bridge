@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import AdmZip from 'adm-zip';
 
 export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
@@ -17,7 +18,7 @@ export async function GET(req: NextRequest) {
     }
 
     try {
-        // GitHub API to download artifact (returns a zip)
+        // 1. Download the zip from GitHub
         const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/actions/artifacts/${artifactId}/zip`, {
             headers: {
                 'Authorization': `Bearer ${githubToken}`,
@@ -28,11 +29,30 @@ export async function GET(req: NextRequest) {
             return NextResponse.json({ error: 'Download failed' }, { status: res.status });
         }
 
-        // Stream the response back to the client
-        const headers = new Headers(res.headers);
-        headers.set('Content-Disposition', `attachment; filename="app-release.zip"`);
+        // 2. Buffer the zip file
+        const arrayBuffer = await res.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
 
-        return new NextResponse(res.body, {
+        // 3. Extract in memory using adm-zip
+        const zip = new AdmZip(buffer);
+        const zipEntries = zip.getEntries();
+
+        // 4. Find the APK file
+        const apkEntry = zipEntries.find(entry => entry.entryName.endsWith('.apk'));
+
+        if (!apkEntry) {
+            return NextResponse.json({ error: 'No APK found in artifact' }, { status: 404 });
+        }
+
+        // 5. Serve the APK raw
+        const apkBuffer = apkEntry.getData();
+
+        const headers = new Headers();
+        headers.set('Content-Type', 'application/vnd.android.package-archive');
+        headers.set('Content-Disposition', `attachment; filename="${apkEntry.name}"`);
+        headers.set('Content-Length', apkBuffer.length.toString());
+
+        return new NextResponse(apkBuffer, {
             status: 200,
             headers,
         });
